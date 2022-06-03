@@ -1,0 +1,13 @@
+[package]
+name = "sol-send-slp"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+spl-token = "3.3.0"
+solana-sdk = "1.10.23"
+solana-client = "1.10.23"
+serde_json = "1.0.81"
+serde = "1.0.137"
