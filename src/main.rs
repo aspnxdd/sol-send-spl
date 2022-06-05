@@ -180,7 +180,7 @@ fn transactions(
 
     let mut pubkeys_and_signatures: Vec<PubkeyAndSignature> = vec![];
     for (index, destination_pubkey) in pubkeys.iter().enumerate() {
-        let mut destination_token_acc =
+        let destination_token_acc =
             get_associated_token_address(&destination_pubkey, &mint_acc_pubkey);
 
         let create_ata_ix = create_associated_token_account(
@@ -195,10 +195,7 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        if let Ok(_) = rpc.send_and_confirm_transaction(&tx) {
-            destination_token_acc =
-                get_associated_token_address(&destination_pubkey, &mint_acc_pubkey);
-        };
+        rpc.send_and_confirm_transaction(&tx).unwrap();
 
         let transfer_ix = transfer_checked(
             &ID,
