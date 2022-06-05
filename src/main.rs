@@ -294,9 +294,12 @@ fn loop_files(args: Vec<String>) -> Result<()> {
 
 fn check_spl_amount(rpc: &RpcClient, pubkey: &Pubkey, mint_acc_pubkey: Pubkey) -> Option<u8> {
     let token_acc = get_associated_token_address(&pubkey, &mint_acc_pubkey);
-    println!("token acc {}", token_acc);
     if let Ok(account_data) = rpc.get_token_account_balance(&token_acc) {
-        println!("data parsed: {:#?}", account_data.amount);
+        println!(
+            "Token amount for {} is: {}",
+            pubkey.to_string(),
+            account_data.amount
+        );
         return Some(account_data.amount.parse().unwrap());
     }
     None
