@@ -7,11 +7,10 @@ use solana_sdk::{
     pubkey::Pubkey, signer::keypair::Keypair, system_instruction::create_account,
     transaction::Transaction,
 };
-use spl_associated_token_account::{
-    get_associated_token_address, instruction::create_associated_token_account,
-};
+use spl_associated_token_account::get_associated_token_address;
+use spl_associated_token_account::instruction::create_associated_token_account;
 use spl_token::{
-    instruction::{initialize_account, initialize_mint, mint_to_checked, transfer_checked},
+    instruction::{initialize_mint, mint_to_checked, transfer_checked},
     state::Mint,
     ID,
 };
@@ -143,8 +142,21 @@ fn transactions(
             blockhash,
         );
         rpc.send_and_confirm_transaction(&tx).unwrap();
-        token_acc = get_associated_token_address(&wallet_keypair.pubkey(), &mint_acc_pubkey);
+        let create_ata_ix = create_associated_token_account(
+            &wallet_keypair.pubkey(),
+            &wallet_keypair.pubkey(),
+            &mint_acc.pubkey(),
+        );
 
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ata_ix],
+            Some(&wallet_keypair.pubkey()),
+            &[&wallet_keypair],
+            blockhash,
+        );
+        rpc.send_and_confirm_transaction(&tx).unwrap();
+        token_acc = get_associated_token_address(&wallet_keypair.pubkey(), &mint_acc_pubkey);
+        println!("token acc {}", token_acc.to_string());
         let mint_instruction = mint_to_checked(
             &ID,
             &mint_acc_pubkey,
@@ -168,8 +180,26 @@ fn transactions(
 
     let mut pubkeys_and_signatures: Vec<PubkeyAndSignature> = vec![];
     for (index, destination_pubkey) in pubkeys.iter().enumerate() {
-        let destination_token_acc =
+        let mut destination_token_acc =
             get_associated_token_address(&destination_pubkey, &mint_acc_pubkey);
+
+        let create_ata_ix = create_associated_token_account(
+            &wallet_keypair.pubkey(),
+            &destination_pubkey,
+            &mint_acc.pubkey(),
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[create_ata_ix],
+            Some(&wallet_keypair.pubkey()),
+            &[&wallet_keypair],
+            blockhash,
+        );
+        if let Ok(_) = rpc.send_and_confirm_transaction(&tx) {
+            destination_token_acc =
+                get_associated_token_address(&destination_pubkey, &mint_acc_pubkey);
+        };
+
         let transfer_ix = transfer_checked(
             &ID,
             &token_acc,
@@ -181,16 +211,17 @@ fn transactions(
             0,
         )
         .unwrap();
+
         let tx = Transaction::new_signed_with_payer(
             &[transfer_ix],
             Some(&wallet_keypair.pubkey()),
             &[&wallet_keypair],
             blockhash,
         );
-
+        let signature = rpc.send_and_confirm_transaction(&tx).unwrap().to_string();
         let pubkey_and_signature = PubkeyAndSignature {
             pubkey: destination_pubkey.to_string(),
-            signature: rpc.send_and_confirm_transaction(&tx).unwrap().to_string(),
+            signature,
         };
 
         pubkeys_and_signatures.push(pubkey_and_signature);
