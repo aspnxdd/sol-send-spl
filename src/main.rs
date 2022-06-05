@@ -14,11 +14,15 @@ use spl_token::{
     state::Mint,
     ID,
 };
-use std::io::prelude::*;
+use std::io;
+use std::io::{prelude::*, Result};
 use std::str::FromStr;
 use std::{
     env,
+    env::current_dir,
+    fs,
     fs::{read_dir, File},
+    path,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,11 +46,13 @@ struct CacheFile {
     pubkeys_and_signatures: Vec<PubkeyAndSignature>,
 }
 
-fn read_wallet() -> std::io::Result<Vec<u8>> {
-    let path = env::current_dir().unwrap().display().to_string();
-    let wallet_file_name = format!("{}/src/wallet.json", path);
-    let mut file_content = File::open(wallet_file_name).unwrap_or_else(|error| {
-        panic!("File not found: {:?}", error);
+pub const SPACE: usize = Mint::LEN;
+pub const RPC_ENDPOINT: &str = "https://api.devnet.solana.com/";
+
+fn read_wallet() -> Result<Vec<u8>> {
+    let wallet_file_name = format!("{}/src/wallet.json", current_dir()?.display().to_string());
+    let mut file_content = File::open(wallet_file_name).unwrap_or_else(|_| {
+        panic!("wallet.json not found, please place you wallet.json in ~/src/<wallet.json>");
     });
     let mut content = String::new();
     file_content.read_to_string(&mut content)?;
@@ -57,11 +63,10 @@ fn create_cache(
     file_name: &String,
     pubkeys_and_signatures: Vec<PubkeyAndSignature>,
     token_mint: String,
-) -> std::io::Result<()> {
-    let path = env::current_dir().unwrap().display().to_string();
-    let cache_path = format!("{path}/src/cache");
-    if !std::path::Path::new(&cache_path).exists() {
-        std::fs::create_dir(&cache_path)?;
+) -> Result<()> {
+    let cache_path = format!("{}/src/cache", current_dir()?.display().to_string());
+    if !path::Path::new(&cache_path).exists() {
+        fs::create_dir(&cache_path)?;
     }
     let cache_content = CacheFile {
         token_mint,
@@ -72,24 +77,17 @@ fn create_cache(
     let content_parsed = serde_json::to_string(&cache_content)?;
 
     let file_path = format!("{cache_path}/{file_name}");
-    std::fs::write(file_path, content_parsed.as_bytes())?;
+    fs::write(file_path, content_parsed.as_bytes())?;
     println!("cache created");
 
     Ok(())
 }
 fn transactions(
+    rpc: &RpcClient,
+    wallet_keypair: &Keypair,
     pubkeys: Vec<Pubkey>,
     provided_mint: Option<String>,
-) -> (String, Vec<PubkeyAndSignature>) {
-    let commitment_config = CommitmentConfig::processed();
-    let rpc = RpcClient::new_with_commitment(
-        "https://api.devnet.solana.com/".to_string(),
-        commitment_config,
-    );
-
-    let space = Mint::LEN;
-    let wallet = read_wallet().unwrap();
-    let wallet_keypair = Keypair::from_bytes(&wallet[..]).unwrap();
+) -> Result<(String, Vec<PubkeyAndSignature>)> {
     let mint_acc = Keypair::new();
     let mut mint_acc_pubkey: Pubkey = mint_acc.pubkey();
     let blockhash = rpc.get_latest_blockhash().unwrap();
@@ -113,17 +111,17 @@ fn transactions(
         let tx = Transaction::new_signed_with_payer(
             &[mint_instruction],
             Some(&wallet_keypair.pubkey()),
-            &[&wallet_keypair],
+            &[wallet_keypair],
             blockhash,
         );
         rpc.send_and_confirm_transaction(&tx).unwrap();
     } else {
-        let min_balance = rpc.get_minimum_balance_for_rent_exemption(space).unwrap();
+        let min_balance = rpc.get_minimum_balance_for_rent_exemption(SPACE).unwrap();
         let token_account_ix = create_account(
             &wallet_keypair.pubkey(),
             &mint_acc_pubkey,
             min_balance,
-            space as u64,
+            SPACE as u64,
             &ID,
         );
         let token_mint_ix = initialize_mint(
@@ -138,7 +136,7 @@ fn transactions(
         let tx = Transaction::new_signed_with_payer(
             &[token_account_ix, token_mint_ix],
             Some(&wallet_keypair.pubkey()),
-            &[&wallet_keypair, &mint_acc],
+            &[wallet_keypair, &mint_acc],
             blockhash,
         );
         rpc.send_and_confirm_transaction(&tx).unwrap();
@@ -151,7 +149,7 @@ fn transactions(
         let tx = Transaction::new_signed_with_payer(
             &[create_ata_ix],
             Some(&wallet_keypair.pubkey()),
-            &[&wallet_keypair],
+            &[wallet_keypair],
             blockhash,
         );
         rpc.send_and_confirm_transaction(&tx).unwrap();
@@ -171,7 +169,7 @@ fn transactions(
         let tx = Transaction::new_signed_with_payer(
             &[mint_instruction],
             Some(&wallet_keypair.pubkey()),
-            &[&wallet_keypair],
+            &[wallet_keypair],
             blockhash,
         );
         rpc.send_and_confirm_transaction(&tx).unwrap();
@@ -192,7 +190,7 @@ fn transactions(
         let tx = Transaction::new_signed_with_payer(
             &[create_ata_ix],
             Some(&wallet_keypair.pubkey()),
-            &[&wallet_keypair],
+            &[wallet_keypair],
             blockhash,
         );
         if let Ok(_) = rpc.send_and_confirm_transaction(&tx) {
@@ -215,7 +213,7 @@ fn transactions(
         let tx = Transaction::new_signed_with_payer(
             &[transfer_ix],
             Some(&wallet_keypair.pubkey()),
-            &[&wallet_keypair],
+            &[wallet_keypair],
             blockhash,
         );
         let signature = rpc.send_and_confirm_transaction(&tx).unwrap().to_string();
@@ -228,18 +226,31 @@ fn transactions(
         println!("Token sent to {}", destination_pubkey.to_string());
         println!("{}% COMPLETED", ((index + 1) * 100) / pubkeys.len());
     }
-    return (token_acc.to_string(), pubkeys_and_signatures);
+    if pubkeys_and_signatures.is_empty() {
+        panic!("Something went wrong, pubkeys_and_signatures is an empty vector.");
+    }
+    return Ok((token_acc.to_string(), pubkeys_and_signatures));
 }
-fn main() -> std::io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let path = env::current_dir().unwrap().display().to_string();
-    let entries = read_dir(format!("{}/src/pubkeys/", path)).unwrap();
+
+fn loop_files(args: Vec<String>) -> Result<()> {
+    let commitment_config = CommitmentConfig::processed();
+    let rpc = RpcClient::new_with_commitment(RPC_ENDPOINT, commitment_config);
+
+    let wallet = read_wallet().unwrap();
+    let wallet_keypair = Keypair::from_bytes(&wallet[..]).unwrap();
+    let entries = read_dir(format!(
+        "{}/src/pubkeys/",
+        current_dir()?.display().to_string()
+    ))
+    .unwrap_or_else(|_| {
+        panic!("Can't read pubkeys files in ~/src/pubkeys/<HERE>");
+    });
     for file in entries {
         let file_name = file.as_ref().unwrap().file_name().into_string().unwrap();
         let process = format!("Processing {} ~ Continue [y/n]?\n", file_name);
-        std::io::stdout().write_all(process.as_bytes())?;
+        io::stdout().write_all(process.as_bytes())?;
         let mut buffer = String::new();
-        std::io::stdin().read_line(&mut buffer)?;
+        io::stdin().read_line(&mut buffer)?;
         if buffer.starts_with("n") || buffer.starts_with("N") {
             continue;
         };
@@ -256,8 +267,18 @@ fn main() -> std::io::Result<()> {
             .iter()
             .map(|x| Pubkey::from_str(&x.id.clone()).unwrap())
             .collect();
-        let (token_mint, pubkeys_and_signatures) = transactions(pubkeys, provided_mint);
-        create_cache(&file_name, pubkeys_and_signatures, token_mint)?;
+        if let Ok((token_mint, pubkeys_and_signatures)) =
+            transactions(&rpc, &wallet_keypair, pubkeys, provided_mint)
+        {
+            create_cache(&file_name, pubkeys_and_signatures, token_mint)?;
+        }
+    }
+    Ok(())
+}
+fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if let Ok(_) = loop_files(args) {
+        println!("Completed!");
     }
     Ok(())
 }
