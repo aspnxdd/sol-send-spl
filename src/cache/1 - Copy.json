@@ -1,0 +1,21 @@
+{
+    "token_mint": "7Vr6e6vPi5hBWk79RLcnjQr2q9ZXhErarGph4iPfsMX3",
+    "tokens_amount": 4,
+    "pubkeys_and_signatures": [{
+            "pubkey": "ARNW5YxEDJzTaquQmHRwKQ481HYox18nhVDTauDucUh7",
+            "signature": "2QcFo1veDS8w1VQnymyDVf696GLukZw1BG1EddK4S2kpEpkaNv8evLV5H9DPpBzye12rQYx1F2NSmVjQqHCeRDsS"
+        },
+        {
+            "pubkey": "BoX451MZzydoVdZE4NFfmMT3J5Ztqo7YgUNbwwMfjPFu",
+            "signature": "mAohYP2sdsioRAGJ2MVP9TruQZiSgxd95j7yo54MZYBqs95k291kHLj9YfiYeUEshdpWtHZebVeWc6SwiqUsBDc"
+        },
+        {
+            "pubkey": "HsKAR3f4hcZBH1S1damGpeusYZ7XhnAkAuVGpekBgfCk",
+            "signature": "2qTgjeynBYMm2cL1kRNJ6jtz1hFqHaAzs3U9o49LfKYmECjR84s72vh4DQJHqc2gbSG6ApiSJ61oCMZRYRAXYaoV"
+        },
+        {
+            "pubkey": "2Fdqw4yJAr3gmgiR7QYwZjUtqpgDmnAuwaLhwQhoL6sE",
+            "signature": "2sk1vbMzqHQwHQGHEdmRHiQVmLCpYRgCboLKN7ucVx1fw75BjVXNfT1DH4kUmrzXVb3WKdoByfpXxFQAVRRhwq72"
+        }
+    ]
+}
