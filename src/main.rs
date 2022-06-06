@@ -53,7 +53,7 @@ struct Pubkeys {
 struct PubkeyAndSignature {
     pubkey: String,
     amount: Option<u8>,
-    signature: String,
+    signature: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct CacheFile {
@@ -98,6 +98,13 @@ fn create_cache(
 
     Ok(())
 }
+fn send_transaction(rpc: &RpcClient, tx: &Transaction) {
+    let res = rpc.send_and_confirm_transaction(&tx);
+    if let Err(err) = res {
+        println!("Error: {:#?}", err);
+    }
+}
+
 fn transactions(
     rpc: &RpcClient,
     wallet_keypair: &Keypair,
@@ -131,7 +138,7 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        rpc.send_and_confirm_transaction(&tx).unwrap();
+        send_transaction(rpc, &tx);
     } else {
         let min_balance = rpc.get_minimum_balance_for_rent_exemption(SPACE).unwrap();
         let token_account_ix = create_account(
@@ -156,7 +163,8 @@ fn transactions(
             &[wallet_keypair, &mint_acc],
             blockhash,
         );
-        rpc.send_and_confirm_transaction(&tx).unwrap();
+        send_transaction(rpc, &tx);
+
         let create_ata_ix = create_associated_token_account(
             &wallet_keypair.pubkey(),
             &wallet_keypair.pubkey(),
@@ -169,7 +177,8 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        rpc.send_and_confirm_transaction(&tx).unwrap();
+        send_transaction(rpc, &tx);
+
         token_acc = get_associated_token_address(&wallet_keypair.pubkey(), &mint_acc_pubkey);
         println!("token acc {}", token_acc.to_string());
         let mint_instruction = mint_to_checked(
@@ -189,7 +198,8 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        rpc.send_and_confirm_transaction(&tx).unwrap();
+        send_transaction(rpc, &tx);
+
         println!("Mint created {}", mint_acc_pubkey.to_string());
     }
 
@@ -210,7 +220,7 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        rpc.send_and_confirm_transaction(&tx).unwrap_or_default();
+        send_transaction(rpc, &tx);
 
         let transfer_ix = transfer_checked(
             &ID,
@@ -230,7 +240,10 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        let signature = rpc.send_and_confirm_transaction(&tx).unwrap().to_string();
+        let mut signature = None;
+        if let Ok(sig) = rpc.send_and_confirm_transaction(&tx) {
+            signature = Some(sig.to_string());
+        }
         let mut amount: Option<u8> = None;
         if *should_check_spl_amount {
             amount = check_spl_amount(rpc, destination_pubkey, mint_acc_pubkey);
