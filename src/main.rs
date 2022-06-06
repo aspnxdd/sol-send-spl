@@ -1,3 +1,4 @@
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use solana_client::rpc_client::RpcClient;
@@ -18,12 +19,26 @@ use std::io;
 use std::io::{prelude::*, Result};
 use std::str::FromStr;
 use std::{
-    env,
     env::current_dir,
     fs,
     fs::{read_dir, File},
     path,
 };
+#[derive(Parser, Debug)]
+#[clap(name = "SPL Token Airdropper from Matrica")]
+#[clap(author = "Arnau E. <aespin@boxfish.studio>")]
+#[clap(version = "1.0")]
+#[clap(about = "Tool to airdrop SPL tokens to the accounts provided from matrica as .json files.", long_about = None)]
+
+struct Args {
+    /// <bool> - should check spl token amount after airdrop, to make sure the airdrop succeeded.
+    #[clap(short, long)]
+    should_check_spl_amount: bool,
+
+    /// <string> - if you have the authority for a mint, add it so you can airdrop it instead of generating a new random mint.
+    #[clap(short, long)]
+    mint_address: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct NFTs {
@@ -87,7 +102,7 @@ fn transactions(
     rpc: &RpcClient,
     wallet_keypair: &Keypair,
     pubkeys: Vec<Pubkey>,
-    provided_mint: Option<String>,
+    provided_mint: &Option<String>,
     should_check_spl_amount: bool,
 ) -> Result<(String, Vec<PubkeyAndSignature>)> {
     let mint_acc = Keypair::new();
@@ -237,7 +252,7 @@ fn transactions(
     return Ok((token_acc.to_string(), pubkeys_and_signatures));
 }
 
-fn loop_files(args: Vec<String>) -> Result<()> {
+fn loop_files(args: Args) -> Result<()> {
     let commitment_config = CommitmentConfig::processed();
     let rpc = RpcClient::new_with_commitment(RPC_ENDPOINT, commitment_config);
 
@@ -264,14 +279,8 @@ fn loop_files(args: Vec<String>) -> Result<()> {
         file_content.read_to_string(&mut contents)?;
         let content_parsed: Vec<Pubkeys> = serde_json::from_str(&contents)?;
 
-        let mut provided_mint: Option<String> = None;
-        let mut should_check_spl_amount = false;
-        if args.len() > 2 && !args[2].is_empty() {
-            provided_mint = Some(args[2].clone());
-        }
-        if args.len() > 1 && !args[1].is_empty() {
-            should_check_spl_amount = args[1].parse().unwrap();
-        }
+        let provided_mint = &args.mint_address;
+        let should_check_spl_amount = args.should_check_spl_amount;
         let pubkeys: Vec<Pubkey> = content_parsed
             .iter()
             .map(|x| Pubkey::from_str(&x.id.clone()).unwrap())
@@ -302,12 +311,10 @@ fn check_spl_amount(rpc: &RpcClient, pubkey: &Pubkey, mint_acc_pubkey: Pubkey) -
     None
 }
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        panic!("\nYou should pass at least the 1st param (true/false) \n~$: cargo run -- --should-check-spl-amount --mint-address \nFor example \n~$: cargo run -- true\n");
-    }
+    let args = Args::parse();
     if let Ok(_) = loop_files(args) {
         println!("Completed!");
     }
+
     Ok(())
 }
