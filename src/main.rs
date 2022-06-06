@@ -103,7 +103,7 @@ fn transactions(
     wallet_keypair: &Keypair,
     pubkeys: Vec<Pubkey>,
     provided_mint: &Option<String>,
-    should_check_spl_amount: bool,
+    should_check_spl_amount: &bool,
 ) -> Result<(String, Vec<PubkeyAndSignature>)> {
     let mint_acc = Keypair::new();
     let mut mint_acc_pubkey: Pubkey = mint_acc.pubkey();
@@ -232,7 +232,7 @@ fn transactions(
         );
         let signature = rpc.send_and_confirm_transaction(&tx).unwrap().to_string();
         let mut amount: Option<u8> = None;
-        if should_check_spl_amount {
+        if *should_check_spl_amount {
             amount = check_spl_amount(rpc, destination_pubkey, mint_acc_pubkey);
         }
 
@@ -279,8 +279,10 @@ fn loop_files(args: Args) -> Result<()> {
         file_content.read_to_string(&mut contents)?;
         let content_parsed: Vec<Pubkeys> = serde_json::from_str(&contents)?;
 
-        let provided_mint = &args.mint_address;
-        let should_check_spl_amount = args.should_check_spl_amount;
+        let Args {
+            mint_address: provided_mint,
+            should_check_spl_amount,
+        } = &args;
         let pubkeys: Vec<Pubkey> = content_parsed
             .iter()
             .map(|x| Pubkey::from_str(&x.id.clone()).unwrap())
@@ -289,7 +291,7 @@ fn loop_files(args: Args) -> Result<()> {
             &rpc,
             &wallet_keypair,
             pubkeys,
-            provided_mint,
+            &provided_mint,
             should_check_spl_amount,
         ) {
             create_cache(&file_name, pubkeys_and_signatures, token_mint)?;
