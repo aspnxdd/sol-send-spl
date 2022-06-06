@@ -210,7 +210,7 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        rpc.send_and_confirm_transaction(&tx).unwrap();
+        rpc.send_and_confirm_transaction(&tx).unwrap_or_default();
 
         let transfer_ix = transfer_checked(
             &ID,
