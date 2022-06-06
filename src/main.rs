@@ -1,16 +1,17 @@
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::{program_pack::Pack, signer::Signer};
 use solana_sdk::{
-    pubkey::Pubkey, signer::keypair::Keypair, system_instruction::create_account,
-    transaction::Transaction,
+    client::SyncClient, pubkey::Pubkey, signer::keypair::Keypair,
+    system_instruction::create_account, transaction::Transaction,
 };
+use solana_sdk::{program_pack::Pack, signer::Signer};
 use spl_associated_token_account::get_associated_token_address;
 use spl_associated_token_account::instruction::create_associated_token_account;
 use spl_token::{
-    instruction::{initialize_mint, mint_to_checked, transfer_checked},
+    instruction::{initialize_mint, mint_to_checked, transfer_checked, TokenInstruction},
     state::Mint,
     ID,
 };
@@ -18,12 +19,26 @@ use std::io;
 use std::io::{prelude::*, Result};
 use std::str::FromStr;
 use std::{
-    env,
     env::current_dir,
     fs,
     fs::{read_dir, File},
     path,
 };
+#[derive(Parser, Debug)]
+#[clap(name = "SPL Token Airdropper from Matrica")]
+#[clap(author = "Arnau E. <aespin@boxfish.studio>")]
+#[clap(version = "1.0")]
+#[clap(about = "Tool to airdrop SPL tokens to the accounts provided from matrica as .json files.", long_about = None)]
+
+struct Args {
+    /// <bool> - should check spl token amount after airdrop, to make sure the airdrop succeeded.
+    #[clap(short, long)]
+    should_check_spl_amount: bool,
+
+    /// <string> - if you have the authority for a mint, add it so you can airdrop it instead of generating a new random mint.
+    #[clap(short, long)]
+    mint_address: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct NFTs {
@@ -37,6 +52,7 @@ struct Pubkeys {
 #[derive(Serialize, Deserialize, Debug)]
 struct PubkeyAndSignature {
     pubkey: String,
+    amount: Option<u8>,
     signature: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -86,7 +102,8 @@ fn transactions(
     rpc: &RpcClient,
     wallet_keypair: &Keypair,
     pubkeys: Vec<Pubkey>,
-    provided_mint: Option<String>,
+    provided_mint: &Option<String>,
+    should_check_spl_amount: &bool,
 ) -> Result<(String, Vec<PubkeyAndSignature>)> {
     let mint_acc = Keypair::new();
     let mut mint_acc_pubkey: Pubkey = mint_acc.pubkey();
@@ -178,7 +195,7 @@ fn transactions(
 
     let mut pubkeys_and_signatures: Vec<PubkeyAndSignature> = vec![];
     for (index, destination_pubkey) in pubkeys.iter().enumerate() {
-        let mut destination_token_acc =
+        let destination_token_acc =
             get_associated_token_address(&destination_pubkey, &mint_acc_pubkey);
 
         let create_ata_ix = create_associated_token_account(
@@ -193,10 +210,7 @@ fn transactions(
             &[wallet_keypair],
             blockhash,
         );
-        if let Ok(_) = rpc.send_and_confirm_transaction(&tx) {
-            destination_token_acc =
-                get_associated_token_address(&destination_pubkey, &mint_acc_pubkey);
-        };
+        rpc.send_and_confirm_transaction(&tx).unwrap_or_default();
 
         let transfer_ix = transfer_checked(
             &ID,
@@ -217,9 +231,15 @@ fn transactions(
             blockhash,
         );
         let signature = rpc.send_and_confirm_transaction(&tx).unwrap().to_string();
+        let mut amount: Option<u8> = None;
+        if *should_check_spl_amount {
+            amount = check_spl_amount(rpc, destination_pubkey, mint_acc_pubkey);
+        }
+
         let pubkey_and_signature = PubkeyAndSignature {
             pubkey: destination_pubkey.to_string(),
             signature,
+            amount,
         };
 
         pubkeys_and_signatures.push(pubkey_and_signature);
@@ -232,7 +252,7 @@ fn transactions(
     return Ok((token_acc.to_string(), pubkeys_and_signatures));
 }
 
-fn loop_files(args: Vec<String>) -> Result<()> {
+fn loop_files(args: Args) -> Result<()> {
     let commitment_config = CommitmentConfig::processed();
     let rpc = RpcClient::new_with_commitment(RPC_ENDPOINT, commitment_config);
 
@@ -259,26 +279,44 @@ fn loop_files(args: Vec<String>) -> Result<()> {
         file_content.read_to_string(&mut contents)?;
         let content_parsed: Vec<Pubkeys> = serde_json::from_str(&contents)?;
 
-        let mut provided_mint: Option<String> = None;
-        if args.len() > 1 && !args[1].is_empty() {
-            provided_mint = Some(args[1].clone());
-        }
+        let Args {
+            mint_address: provided_mint,
+            should_check_spl_amount,
+        } = &args;
         let pubkeys: Vec<Pubkey> = content_parsed
             .iter()
             .map(|x| Pubkey::from_str(&x.id.clone()).unwrap())
             .collect();
-        if let Ok((token_mint, pubkeys_and_signatures)) =
-            transactions(&rpc, &wallet_keypair, pubkeys, provided_mint)
-        {
+        if let Ok((token_mint, pubkeys_and_signatures)) = transactions(
+            &rpc,
+            &wallet_keypair,
+            pubkeys,
+            &provided_mint,
+            should_check_spl_amount,
+        ) {
             create_cache(&file_name, pubkeys_and_signatures, token_mint)?;
         }
     }
     Ok(())
 }
+
+fn check_spl_amount(rpc: &RpcClient, pubkey: &Pubkey, mint_acc_pubkey: Pubkey) -> Option<u8> {
+    let token_acc = get_associated_token_address(&pubkey, &mint_acc_pubkey);
+    if let Ok(account_data) = rpc.get_token_account_balance(&token_acc) {
+        println!(
+            "Token amount for {} is: {}",
+            pubkey.to_string(),
+            account_data.amount
+        );
+        return Some(account_data.amount.parse().unwrap());
+    }
+    None
+}
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
     if let Ok(_) = loop_files(args) {
         println!("Completed!");
     }
+
     Ok(())
 }
