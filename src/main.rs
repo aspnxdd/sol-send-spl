@@ -211,7 +211,7 @@ fn transactions(
         let create_ata_ix = create_associated_token_account(
             &wallet_keypair.pubkey(),
             &destination_pubkey,
-            &mint_acc.pubkey(),
+            &mint_acc_pubkey,
         );
 
         let tx = Transaction::new_signed_with_payer(
